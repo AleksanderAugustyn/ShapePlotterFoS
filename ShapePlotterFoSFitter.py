@@ -103,7 +103,7 @@ class FoSShapeCalculator:
 
         return f - sum_terms
 
-    def calculate_shape(self, n_points: int = 720) -> Tuple[np.ndarray, np.ndarray]:
+    def calculate_shape(self, n_points: int = 180) -> Tuple[np.ndarray, np.ndarray]:
         """
         Calculate the shape coordinates in (z, ρ) space.
 
@@ -284,7 +284,7 @@ class FoSShapePlotter:
 
         # Initialize the shape plot
         calculator = FoSShapeCalculator(self.nuclear_params)
-        z, rho = calculator.calculate_shape()
+        z, rho = calculator.calculate_shape(n_points=180)
 
         # Create a reference sphere
         r0 = self.nuclear_params.radius0
@@ -535,7 +535,7 @@ class FoSShapePlotter:
         calculator = FoSShapeCalculator(current_params)
 
         # Calculate shape with theoretical shift
-        z_fos, rho_fos = calculator.calculate_shape()
+        z_fos, rho_fos = calculator.calculate_shape(n_points=180)
         # radius_from_fos: np.ndarray = np.sqrt(z_fos ** 2 + rho_fos ** 2)
 
         # Update FoS shape lines
@@ -550,15 +550,33 @@ class FoSShapePlotter:
         theta_beta: np.ndarray = np.array([])
         conversion_root_mean_squared_error: float = 0.0
         rmse_beta_fit: float = 0.0
+        multi_value_warning = ""
         try:
             # First, convert z_fos, rho_fos to spherical coordinates
             cylindrical_to_spherical_converter = CylindricalToSphericalConverter(z_points=z_fos, rho_points=rho_fos)
-            theta_fos, radius_fos = cylindrical_to_spherical_converter.convert_to_spherical(n_theta=720)
-            y_fos, x_fos = cylindrical_to_spherical_converter.convert_to_cartesian(n_theta=720)
+
+            # Check if we have a highly deformed shape
+            if abs(current_params.a3) > 0.15 and abs(current_params.a4) > 0.6:
+                # Use parametric method for highly deformed shapes
+                theta_fos, radius_fos = cylindrical_to_spherical_converter.convert_to_spherical(n_theta=180, method='parametric')
+                conversion_method = "parametric"
+            else:
+                # Use a uniform method for normal shapes
+                theta_fos, radius_fos = cylindrical_to_spherical_converter.convert_to_spherical(n_theta=180, method='uniform')
+                conversion_method = "uniform"
+
+            y_fos, x_fos = cylindrical_to_spherical_converter.convert_to_cartesian(n_theta=180)
 
             # Validate the conversion
-            validation = cylindrical_to_spherical_converter.validate_conversion(n_samples=720)
+            validation = cylindrical_to_spherical_converter.validate_conversion(n_samples=180, method=conversion_method)
             conversion_root_mean_squared_error = validation['root_mean_squared_error']
+            has_multi_valued = validation['has_multi_valued_regions']
+
+            # Add a warning to an info text if multivalued regions detected
+            if has_multi_valued:
+                multi_value_warning = "\nWARNING: Multi-valued regions detected!\n"
+                multi_value_warning += f"Regions: {validation['multi_valued_regions']}\n"
+                multi_value_warning += f"Using {conversion_method} conversion method.\n"
 
             # Update spherical FoS shape lines
             # For plotting, we need to flip x and y since our original is (z, rho)
@@ -573,7 +591,7 @@ class FoSShapePlotter:
             beta_parameters = spherical_to_beta_converter.calculate_beta_parameters(l_max=l_max_value)
 
             # Calculate the beta shape coordinates
-            theta_beta, radius_beta = spherical_to_beta_converter.reconstruct_shape(beta_parameters)
+            theta_beta, radius_beta = spherical_to_beta_converter.reconstruct_shape(beta_parameters, 180)
 
             # Convert back to Cartesian coordinates
             # For plotting, we need to flip x and y since our original is (z, rho)
@@ -596,7 +614,7 @@ class FoSShapePlotter:
             # Get significant beta parameters
             beta_strings = [f"β_{l:<2} = {val:.4f}" for l, val in sorted(beta_parameters.items()) if abs(val) > 0.001]
             if not beta_strings:
-                significant_beta_parameters = "None"
+                significant_beta_parameters = "No significant beta parameters found."
             else:
                 paired_betas = []
                 for i in range(0, len(beta_strings), 2):
@@ -682,6 +700,9 @@ class FoSShapePlotter:
             f"RMSE (Beta Parametrization Fit): {rmse_beta_fit:.3f} fm\n"
             f"\nSignificant Beta Parameters (>0.001):\n{significant_beta_parameters}"
         )
+
+        if multi_value_warning != "":
+            info_text += multi_value_warning
 
         # Remove old text if it exists
         for artist in self.ax_text.texts:

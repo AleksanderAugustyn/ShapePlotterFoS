@@ -167,7 +167,7 @@ class BetaDeformationCalculator:
             return 0.0
         return numerator / denominator
 
-    def reconstruct_shape(self, beta: Dict[int, float], n_theta: int = 720) -> Tuple[np.ndarray, np.ndarray]:
+    def reconstruct_shape(self, beta: Dict[int, float], n_theta: int = 180) -> Tuple[np.ndarray, np.ndarray]:
         """
         Reconstruct the shape from beta parameters.
 
